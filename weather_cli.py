@@ -24,7 +24,6 @@ geo_coding_url = ("https://geocoding-api.open-meteo.com/v1/search?"
 weather_url = ("https://api.open-meteo.com/v1/forecast?"
     "latitude={latitude}&longitude={longitude}&"
     "current=temperature_2m,weather_code,relative_humidity_2m&"
-    "forecast_days={days}"
 )
 
 air_quality_url = (
@@ -103,6 +102,7 @@ def get_coordinate(
     url: str,      # geo-coding url
     location_str: str,
 ):
+    location_str = location_str.lower()
     if location_str not in location_details:
         raise KeyError(
             f"Location {location_str} not available"
@@ -129,10 +129,9 @@ def get_current_weather(
     weather_url: str,
     latitude: float,
     longitude: float,
-    days: int = 3,
     weather_code_filepath: str | Path = "./weather_code.json"
 ) -> CurrentWeather | None:
-    formatted_url = weather_url.format(latitude=latitude, longitude=longitude, days=days)
+    formatted_url = weather_url.format(latitude=latitude, longitude=longitude)
     response = WeatherAPIRequestor.make_api_call(formatted_url)
 
     current_data = response.get("current")
@@ -329,6 +328,24 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 def main():
+    """Example usage: 
+    # Basic - defaults to "petaling", 3-day window
+python weather_cli.py
+
+# Pick a location
+python weather_cli.py segamat
+
+# Show 5-day forecast, only average air quality
+python weather_cli.py petaling --days 5 --stat avg
+
+# Current weather only (no air quality fetch)
+python weather_cli.py --weather-only
+
+# Air quality only
+python weather_cli.py --air-only --stat max
+
+# See all registered locations
+python weather_cli.py --list-locations"""
     parser = build_parser()
     args = parser.parse_args()
 
@@ -366,7 +383,6 @@ def main():
             progress.update(task, description="Fecthing current weather...")
             weather = get_current_weather(
                 weather_url, lat, lon,
-                days=args.days,
                 weather_code_filepath=args.weather_codes
             )
             progress.stop()
