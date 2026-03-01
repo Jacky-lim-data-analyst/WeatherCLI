@@ -26,6 +26,12 @@ weather_url = ("https://api.open-meteo.com/v1/forecast?"
     "current=temperature_2m,weather_code,relative_humidity_2m&"
 )
 
+rain_probability_url = (
+    "https://api.open-meteo.com/v1/forecast?"
+    "latitude={latitude}&longitude={longitude}&"
+    "hourly=precipitation_probability&forecast_days={days}"
+)
+
 air_quality_url = (
     "https://air-quality-api.open-meteo.com/v1/air-quality?"
     "latitude={latitude}&longitude={longitude}&"
@@ -168,6 +174,17 @@ def get_air_quality_metrics(
 
     return response.get("hourly")  # dict with "time iso8601 utc", "pm10", "pm2_5", "uv_index"
 
+def get_rain_probability(
+    rain_url: str,
+    latitude: float,
+    longitude: float,
+    days: int = 3
+) -> dict | None:
+    """Fetch hourly precipitation data"""
+    formatted_url = rain_url.format(latitude=latitude, longitude=longitude, days=days)
+    response = WeatherAPIRequestor.make_api_call(formatted_url)
+    return response.get("hourly")
+
 # ---- Rich display helpers -------------------------
 def _pm10_color(value: float) -> str:
     if value <= 20: return "green"
@@ -260,6 +277,50 @@ def display_air_quality(data: dict, stat: str = "avg"):
 
     console.print(table)
 
+# --- Precipitation thresholds config ---
+RAIN_THREHSHOLDS = [
+    ("🔵 Caution", 30, "cyan"),
+    ("🟡 Warning", 50, "yellow"),
+    ("🔴 Alert", 70, "red")
+]
+
+def display_rain_probability(data: dict):
+    """Display hourly precipitation probability grouped by day"""
+    df = pd.DataFrame(data)
+    df["time"] = pd.to_datetime(df["time"])
+    df["date"] = df["time"].dt.date
+    df["hour"] = df["time"].dt.hour
+    df["prob"] = df["precipitation_probability"].fillna(0)
+
+    # drop the preciptation probability (original) and time
+    df.drop(columns=["time", "precipitation_probability"], inplace=True)
+
+    table = Table(
+        title="Precipitation probability forecast",
+        box=box.ROUNDED,
+        border_style="bright_blue",
+        header_style="bold cyan",
+        show_lines=True
+    )
+    table.add_column("Date", style="dim", justify="center")
+    for label, _, color in RAIN_THREHSHOLDS:
+        table.add_column(f"[bold {color}]{label}[/bold {color}]\n[dim](>{RAIN_THREHSHOLDS[RAIN_THREHSHOLDS.index((label, _, color))][1]}%)",
+                         justify="left", no_wrap=False)
+
+    for date, group in df.groupby("date"):
+        row_cells: list[Text] = []
+        for _, threshold, color in RAIN_THREHSHOLDS:
+            hits = group.loc[group["prob"] > threshold, "hour"].tolist()
+            if hits:
+                cell = Text(", ".join(map(str, hits)), style=f"bold {color}")
+            else:
+                cell = Text("—", style="green")
+            row_cells.append(cell)
+
+        table.add_row(str(date), *row_cells)
+
+    console.print(table)
+
 def display_legend():
     legend = Table(box=box.SIMPLE, show_header=False, padding=(0, 1))
     legend.add_column(justify="left")
@@ -275,6 +336,12 @@ def display_legend():
         "[red]●[/red] Unhealthy",
     )
     legend.add_row("[bright_red]●[/bright_red] Very Unhealthy / Hazardous", "")
+
+    legend.add_row("", "")
+    legend.add_row("[bold]Rain Probability Thresholds[/bold]", "")
+    legend.add_row("[cyan]🔵 Caution[/cyan]  >30%  Some chance of rain", "")
+    legend.add_row("[yellow]🟡 Warning[/yellow]  >50%  Likely rain", "")
+    legend.add_row("[red]🔴 Alert[/red]    >70%  Very likely rain", "")
     console.print(legend)
 
 # --- CLI ------------
@@ -307,7 +374,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--weather-only",
         action="store_true",
-        help="Show only current weather, skip air quality"
+        help="Show only current weather, skip air quality and forcecast precipitation prob"
     )
     parser.add_argument(
         "--air-only",
@@ -416,6 +483,23 @@ python weather_cli.py --list-locations"""
                 display_legend()
             else:
                 console.print("[yellow]Warning:[/yellow] Could not retrieve air quality data.")
+
+        # ---- precipitation prob ---
+        if not args.weather_only:
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                transient=True,
+                console=console
+            ) as p3:
+                p3.add_task("Fetching precipitation probability...", total=None)
+                rain_data = get_rain_probability(rain_probability_url, lat, lon, days=args.days)
+
+            if rain_data:
+                console.print()
+                display_rain_probability(rain_data)
+            else:
+                console.print("[yellow]Warning:[/yellow] Could not retrieve precipitation data.")
 
 if __name__ == "__main__":
     main()

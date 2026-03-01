@@ -10,6 +10,7 @@ geo_coding_url = ("https://geocoding-api.open-meteo.com/v1/search?"
 
 weather_url = ("https://api.open-meteo.com/v1/forecast?"
     "latitude={latitude}&longitude={longitude}&"
+    "hourly=precipitation_probability&"
     "current=temperature_2m,weather_code,relative_humidity_2m&"
     "forecast_days={days}"
 )

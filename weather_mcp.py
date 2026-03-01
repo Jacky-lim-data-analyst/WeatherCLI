@@ -36,6 +36,12 @@ air_quality_url = (
     "forecast_days={days}"
 )
 
+rain_probability_url = (
+    "https://api.open-meteo.com/v1/forecast?"
+    "latitude={latitude}&longitude={longitude}&"
+    "hourly=precipitation_probability&forecast_days={days}"
+)
+
 # ---- Location registry ----------------------
 location_details: dict[str, dict] = {
     "petaling": {
@@ -204,6 +210,35 @@ def get_air_quality(
         "pm10": hourly.get("pm10", []),
         "pm2_5": hourly.get("pm2_5", []),
         "uv_index": hourly.get("uv_index", [])
+    }
+
+@mcp.tool(
+    description=(
+        "Fetch hourly rain probaility forecast "
+        "for the given coordinates over a number of days. "
+        "Returns a dict with keys 'time', 'precipitation_probability'"
+    )
+)
+def get_rain_probability(
+    latitude: Annotated[float, "Latitude obtained from get_coordinate"],
+    longitude: Annotated[float, "Longitude obtained from get_coordinate"],
+    days: Annotated[int, "Forecast windows in days (at most 16)"] = 3,
+) -> dict:
+    """Fetch hourly precipitation data"""
+    if not (1 <= days <= 16):
+        raise ValueError("days must be between 1 and 16 for air quality forecast")
+
+    url = rain_probability_url.format(latitude=latitude, longitude=longitude, days=days)
+    response = _api_get(url)
+
+    hourly = response.get("hourly")
+
+    if not hourly:
+        raise RuntimeError("rain probability API did not return 'hourly' data")
+    
+    return {
+        "time": hourly.get("time", []),
+        "precipitation_probability": hourly.get("precipitation_probability", [])
     }
 
 # ----- Entry point ----
